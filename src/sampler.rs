@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Sender, Receiver};
+use tokio::sync::mpsc::{self as tokio_mpsc, UnboundedSender, UnboundedReceiver};
 use std::sync::{Mutex, Arc};
 use std::time::Duration;
 use std::thread;
@@ -16,7 +17,7 @@ use crate::version::Version;
 
 pub struct Sampler {
     pub version: Option<Version>,
-    rx: Option<Receiver<Sample>>,
+    rx: Option<UnboundedReceiver<Sample>>,
     sampling_thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -37,7 +38,7 @@ impl Sampler {
 
     /// Creates a new sampler object, reading from a single process only
     fn new_sampler(pid: Pid, config: &Config) -> Result<Sampler, Error> {
-        let (tx, rx): (Sender<Sample>, Receiver<Sample>) = mpsc::channel();
+        let (tx, rx): (UnboundedSender<Sample>, UnboundedReceiver<Sample>) = tokio_mpsc::unbounded_channel();
         let (initialized_tx, initialized_rx): (Sender<Result<Version, Error>>, Receiver<Result<Version, Error>>) = mpsc::channel();
         let config = config.clone();
         let sampling_thread = thread::spawn(move || {
@@ -144,7 +145,7 @@ impl Sampler {
 
         // Create a new thread to generate samples
         let config = config.clone();
-        let (tx, rx): (Sender<Sample>, Receiver<Sample>) = mpsc::channel();
+        let (tx, rx): (UnboundedSender<Sample>, UnboundedReceiver<Sample>) = tokio_mpsc::unbounded_channel();
         let sampling_thread = std::thread::spawn(move || {
             for sleep in Timer::new(config.sampling_rate as f64) {
                 let mut traces = Vec::new();
@@ -202,12 +203,16 @@ impl Sampler {
 
         Ok(Sampler{rx: Some(rx), version: None, sampling_thread: Some(sampling_thread)})
     }
+
+    pub async fn read(&mut self) -> Option<Sample> {
+        self.rx.as_mut().unwrap().recv().await
+    }
 }
 
 impl Iterator for Sampler {
     type Item = Sample;
     fn next(&mut self) -> Option<Self::Item> {
-        self.rx.as_ref().unwrap().recv().ok()
+        self.rx.as_mut().unwrap().blocking_recv()
     }
 }
 

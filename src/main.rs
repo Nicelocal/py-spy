@@ -313,7 +313,165 @@ fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error>
     Ok(())
 }
 
-fn run_spy_command(pid: remoteprocess::Pid, config: &config::Config) -> Result<(), Error> {
+async fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error> {
+    let mut output = RawFlamegraph(flamegraph::Flamegraph::new(config.show_line_numbers));
+    let pyroscope_url = format!("{}/ingest", config.pyroscope_url.clone().unwrap());
+    let pyroscope_app = config.pyroscope_app.clone().unwrap();
+    let pyroscope_tags = if let Some(v) = config.pyroscope_tags.as_ref() {
+        v
+    } else {
+        ""
+    };
+    let name = format!("{}{{{}}}", pyroscope_app, pyroscope_tags);
+
+    let mut sampler = sampler::Sampler::new(pid, config)?;
+    
+    let lede = format!("{}{} ", style("py-spy").bold().green(), style(">").dim());
+
+    let max_intervals = match &config.duration {
+        RecordDuration::Unlimited => {
+            println!("{}Sampling process {} times a second. Press Control-C to exit.", lede, config.sampling_rate);
+            None
+        },
+        RecordDuration::Seconds(sec) => {
+            println!("{}Sampling process {} times a second for {} seconds. Press Control-C to exit.", lede, config.sampling_rate, sec);
+            Some(sec * config.sampling_rate)
+        }
+    };
+
+    let report_interval = config.pyroscope_report_interval * config.sampling_rate;
+    
+    let client = reqwest::Client::new();
+
+    let mut errors = 0;
+    let mut intervals = 0;
+    let mut send_intervals = 0;
+    let mut samples = 0;
+    println!();
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })?;
+
+    let mut exit_message = "Stopped sampling because process exited";
+    let mut last_late_message = std::time::Instant::now();
+
+    let mut start_ts = Local::now().timestamp();
+
+    while let Some(mut sample) = sampler.read().await {
+        if let Some(delay) = sample.late {
+            if delay > Duration::from_secs(1) {
+                if config.hide_progress {
+                    // display a message if we're late, but don't spam the log
+                    let now = std::time::Instant::now();
+                    if now - last_late_message > Duration::from_secs(1) {
+                        last_late_message = now;
+                        println!("{}{:.2?} behind in sampling, results may be inaccurate. Try reducing the sampling rate", lede, delay)
+                    }
+                } else {
+                    println!("{:.2?} behind in sampling, results may be inaccurate. Try reducing the sampling rate.", delay);
+                }
+            }
+        }
+
+        if !running.load(Ordering::SeqCst) {
+            exit_message = "Stopped sampling because Control-C pressed";
+            break;
+        }
+
+        intervals += 1;
+        if let Some(max_intervals) = max_intervals {
+            if intervals >= max_intervals {
+                exit_message = "";
+                break;
+            }
+        }
+
+        for trace in sample.traces.iter_mut() {
+            if !(config.include_idle || trace.active) {
+                continue;
+            }
+
+            if config.gil_only && !trace.owns_gil {
+                continue;
+            }
+
+            if config.include_thread_ids {
+                let threadid = trace.format_threadid();
+                trace.frames.push(Frame{name: format!("thread ({})", threadid),
+                    filename: String::from(""),
+                    module: None, short_filename: None, line: 0, locals: None});
+            }
+
+            if let Some(process_info) = trace.process_info.as_ref().map(|x| x) {
+                trace.frames.push(process_info.to_frame());
+                let mut parent = process_info.parent.as_ref();
+                while parent.is_some() {
+                    if let Some(process_info) = parent {
+                        trace.frames.push(process_info.to_frame());
+                        parent = process_info.parent.as_ref();
+                    }
+                }
+            }
+
+            samples += 1;
+            output.increment(&trace)?;
+        }
+
+        send_intervals += 1;
+        if send_intervals >= report_interval {
+            let mut body: Vec<u8> = Vec::new();
+            output.write(&mut body)?;
+            client.post(&pyroscope_url)
+                .query(&[
+                    ("from", start_ts.to_string()),
+                    ("until", Local::now().timestamp().to_string()),
+                    ("name", name.clone()),
+                    ("sampleRate", config.sampling_rate.to_string()),
+                ])
+                .body(body)
+                .send()
+                .await?;
+
+            start_ts = Local::now().timestamp();
+            output = RawFlamegraph(flamegraph::Flamegraph::new(config.show_line_numbers));
+            send_intervals = 0;
+        }
+
+        if let Some(sampling_errors) = sample.sampling_errors {
+            for (pid, e) in sampling_errors {
+                warn!("Failed to get stack trace from {}: {}", pid, e);
+                errors += 1;
+            }
+        }
+    }
+
+    let mut body: Vec<u8> = Vec::new();
+    output.write(&mut body)?;
+    println!("{}", std::str::from_utf8(&body)?);
+    client.post(&pyroscope_url)
+        .query(&[
+            ("from", start_ts.to_string()),
+            ("until", Local::now().timestamp().to_string()),
+            ("name", name.clone()),
+            ("sampleRate", config.sampling_rate.to_string()),
+        ])
+        .body(body)
+        .send()
+        .await?;
+
+    if !exit_message.is_empty() {
+        println!("\n{}{}", lede, exit_message);
+    }
+    
+    println!("{}Wrote flamegraph data to '{}'. Samples: {} Errors: {}", lede, pyroscope_app, samples, errors);
+
+    Ok(())
+}
+
+async fn run_spy_command(pid: remoteprocess::Pid, config: &config::Config) -> Result<(), Error> {
     match config.command.as_ref() {
         "dump" =>  {
             dump::print_traces(pid, config, None)?;
@@ -324,6 +482,9 @@ fn run_spy_command(pid: remoteprocess::Pid, config: &config::Config) -> Result<(
         "top" => {
             sample_console(pid, config)?;
         }
+        "pyroscope" => {
+            sample_pyroscope(pid, config).await?;
+        }
         _ => {
             // shouldn't happen
             return Err(format_err!("Unknown command {}", config.command));
@@ -332,7 +493,7 @@ fn run_spy_command(pid: remoteprocess::Pid, config: &config::Config) -> Result<(
     Ok(())
 }
 
-fn pyspy_main() -> Result<(), Error> {
+async fn pyspy_main() -> Result<(), Error> {
     let config = config::Config::from_commandline();
 
     #[cfg(target_os="macos")]
@@ -354,7 +515,7 @@ fn pyspy_main() -> Result<(), Error> {
     }
 
     if let Some(pid) = config.pid {
-        run_spy_command(pid, &config)?;
+        run_spy_command(pid, &config).await?;
     }
 
     else if let Some(ref subprocess) = config.python_program {
@@ -390,7 +551,7 @@ fn pyspy_main() -> Result<(), Error> {
             // sleep just in case: https://jvns.ca/blog/2018/01/28/mac-freeze/
             std::thread::sleep(Duration::from_millis(50));
         }
-        let result = run_spy_command(command.id() as _, &config);
+        let result = run_spy_command(command.id() as _, &config).await;
 
         // check exit code of subprocess
         std::thread::sleep(Duration::from_millis(1));
@@ -420,10 +581,11 @@ fn pyspy_main() -> Result<(), Error> {
     Ok(())
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::builder().format_timestamp_nanos().try_init().unwrap();
 
-    if let Err(err) = pyspy_main() {
+    if let Err(err) = pyspy_main().await {
         #[cfg(unix)]
         {
         if permission_denied(&err) {

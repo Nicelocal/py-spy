@@ -56,6 +56,15 @@ pub struct Config {
     pub refresh_seconds: f64,
     #[doc(hidden)]
     pub core_filename: Option<String>,
+
+    #[doc(hidden)]
+    pub pyroscope_url: Option<String>,
+    #[doc(hidden)]
+    pub pyroscope_app: Option<String>,
+    #[doc(hidden)]
+    pub pyroscope_tags: Option<String>,
+    #[doc(hidden)]
+    pub pyroscope_report_interval: u64,
 }
 
 #[allow(non_camel_case_types)]
@@ -121,7 +130,9 @@ impl Default for Config {
                gil_only: false, include_idle: false, include_thread_ids: false,
                hide_progress: false, capture_output: true, dump_json: false, dump_locals: 0, subprocesses: false,
                full_filenames: false, lineno: LineNo::LastInstruction,
-               refresh_seconds: 1.0, core_filename: None }
+               refresh_seconds: 1.0, core_filename: None, pyroscope_app: None, pyroscope_tags: None, pyroscope_url: None,
+               pyroscope_report_interval: 10
+            }
     }
 }
 
@@ -244,6 +255,63 @@ impl Config {
                 .hide(true)
                 .help("Hides progress bar (useful for showing error output on record)"));
 
+        let pyroscope = Command::new("pyroscope")
+            .about("Sends stack trace information to pyroscope")
+            .arg(program.clone())
+            .arg(pid.clone().required_unless_present("python_program"))
+            .arg(full_filenames.clone())
+            .arg(Arg::new("url")
+                .short('y')
+                .long("pyroscope_url")
+                .value_name("http://localhost:4040")
+                .help("Pyroscope URL")
+                .takes_value(true)
+                .required(true))
+            .arg(Arg::new("tags")
+                .long("pyroscope_tags")
+                .value_name("env=staging,region=us-west-1")
+                .help("Pyroscope tags")
+                .takes_value(true)
+                .required(false))
+            .arg(Arg::new("app")
+                .long("pyroscope_app")
+                .value_name("app")
+                .help("Pyroscope app name")
+                .takes_value(true)
+                .required(true))
+            .arg(Arg::new("report_interval")
+                .long("pyroscope_report_interval")
+                .value_name("report_interval")
+                .help("Pyroscope report interval")
+                .takes_value(true)
+                .required(true))
+            .arg(Arg::new("duration")
+                .short('d')
+                .long("duration")
+                .value_name("duration")
+                .help("The number of seconds to sample for")
+                .default_value("unlimited")
+                .takes_value(true))
+            .arg(rate.clone())
+            .arg(subprocesses.clone())
+            .arg(Arg::new("function")
+                .short('F')
+                .long("function")
+                .help("Aggregate samples by function's first line number, instead of current line number"))
+            .arg(Arg::new("nolineno")
+                .long("nolineno")
+                .help("Do not show line numbers"))
+            .arg(Arg::new("threads")
+                .short('t')
+                .long("threads")
+                .help("Show thread ids in the output"))
+            .arg(gil.clone())
+            .arg(idle.clone())
+            .arg(Arg::new("capture")
+                .long("capture")
+                .hide(true)
+                .help("Captures output from child process"));
+
         let top = Command::new("top")
             .about("Displays a top like view of functions consuming CPU")
             .arg(program.clone())
@@ -299,6 +367,8 @@ impl Config {
         let top = top.arg(native.clone());
         #[cfg(unwind)]
         let dump = dump.arg(native.clone());
+        #[cfg(unwind)]
+        let pyroscope = pyroscope.arg(native.clone());
 
         // Nonblocking isn't an option for freebsd, remove
         #[cfg(not(target_os="freebsd"))]
@@ -307,6 +377,8 @@ impl Config {
         let top = top.arg(nonblocking.clone());
         #[cfg(not(target_os="freebsd"))]
         let dump = dump.arg(nonblocking.clone());
+        #[cfg(not(target_os="freebsd"))]
+        let pyroscope = pyroscope.arg(nonblocking.clone());
 
         let mut app = Command::new(crate_name!())
             .version(crate_version!())
@@ -318,6 +390,7 @@ impl Config {
             .subcommand(record)
             .subcommand(top)
             .subcommand(dump)
+            .subcommand(pyroscope)
             .subcommand(completions);
         let matches = app.clone().try_get_matches_from(args)?;
         info!("Command line args: {:?}", matches);
@@ -343,6 +416,24 @@ impl Config {
                     std::process::exit(1);
                 }
                 config.hide_progress = matches.occurrences_of("hideprogress") > 0;
+            },
+            "pyroscope" => {
+                config.sampling_rate = matches.value_of_t("rate")?;
+                config.duration = match matches.value_of("duration") {
+                    Some("unlimited") | None => RecordDuration::Unlimited,
+                    Some(seconds) => RecordDuration::Seconds(seconds.parse().expect("invalid duration"))
+                };
+                config.pyroscope_report_interval = matches.value_of_t("report_interval")?;
+                config.show_line_numbers = matches.occurrences_of("nolineno") == 0;
+                config.lineno = if matches.occurrences_of("nolineno") > 0 { LineNo::NoLine } else if matches.occurrences_of("function") > 0 { LineNo::FirstLineNo } else { LineNo::LastInstruction };
+                config.include_thread_ids = matches.occurrences_of("threads") > 0;
+                config.pyroscope_url = matches.value_of("url").map(|f| f.to_owned());
+                config.pyroscope_app = matches.value_of("app").map(|f| f.to_owned());
+                config.pyroscope_tags = matches.value_of("tags").map(|f| f.to_owned());
+                if matches.occurrences_of("nolineno") > 0 && matches.occurrences_of("function") > 0 {
+                    eprintln!("--function & --nolinenos can't be used together");
+                    std::process::exit(1);
+                }
             },
             "top" => {
                 config.sampling_rate = matches.value_of_t("rate")?;
