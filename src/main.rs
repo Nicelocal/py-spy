@@ -315,13 +315,9 @@ fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error>
 
 async fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error> {
     let mut output = RawFlamegraph(flamegraph::Flamegraph::new(config.show_line_numbers));
-    let pyroscope_url = format!("{}/ingest", config.pyroscope_url.clone().unwrap());
-    let pyroscope_app = config.pyroscope_app.clone().unwrap();
-    let pyroscope_tags = if let Some(v) = config.pyroscope_tags.as_ref() {
-        v
-    } else {
-        ""
-    };
+    let pyroscope_url = format!("{}/ingest", config.pyroscope_url.as_ref().unwrap());
+    let pyroscope_app = config.pyroscope_app.as_ref().unwrap();
+    let pyroscope_tags = config.pyroscope_tags.as_deref().unwrap_or("");
     let name = format!("{}{{{}}}", pyroscope_app, pyroscope_tags);
 
     let mut sampler = sampler::Sampler::new(pid, config)?;
