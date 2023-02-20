@@ -458,7 +458,7 @@ impl Config {
         }
 
         match subcommand {
-            "record" | "top" => {
+            "record" | "top" | "pyroscope" => {
                 config.python_program = matches.values_of("python_program").map(|vals| {
                     vals.map(|v| v.to_owned()).collect()
                 });

@@ -446,7 +446,6 @@ async fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<()
 
     let mut body: Vec<u8> = Vec::new();
     output.write(&mut body)?;
-    println!("{}", std::str::from_utf8(&body)?);
     client.post(&pyroscope_url)
         .query(&[
             ("from", start_ts.to_string()),
