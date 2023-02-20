@@ -505,7 +505,7 @@ async fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<()
             lede, res
         )
     } else {
-        println!("{}Sent pyroscope report!", lede);
+        println!("{}Sent final pyroscope report!", lede);
     }
 
     if !exit_message.is_empty() {
