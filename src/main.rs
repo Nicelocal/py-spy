@@ -513,7 +513,7 @@ async fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<()
     }
 
     println!(
-        "{}Wrote flamegraph data to '{}'. Samples: {} Errors: {}",
+        "{}Reported data to '{}'. Samples: {} Errors: {}",
         lede, pyroscope_url, samples, errors
     );
 
