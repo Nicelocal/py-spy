@@ -61,7 +61,6 @@ pub struct LocalVariable {
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessInfo {
     pub pid: Pid,
-    pub command_line: String,
     pub parent: Option<Box<ProcessInfo>>,
 }
 
@@ -273,7 +272,9 @@ pub fn get_gil_threadid<I: InterpreterState, P: ProcessMemory>(
 impl ProcessInfo {
     pub fn to_frame(&self) -> Frame {
         Frame {
-            name: format!("process {}:\"{}\"", self.pid, self.command_line),
+            name: remoteprocess::Process::new(self.pid)
+                .and_then(|p| p.cmdline().map(|x| x.join(" ")))
+                .unwrap_or("".to_owned()),
             filename: String::from(""),
             module: None,
             short_filename: None,

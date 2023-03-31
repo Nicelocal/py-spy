@@ -273,7 +273,6 @@ struct PythonSpyThread {
     notified: bool,
     pub process: remoteprocess::Process,
     pub parent: Option<Pid>,
-    pub command_line: String,
 }
 
 impl PythonSpyThread {
@@ -289,10 +288,6 @@ impl PythonSpyThread {
         ) = mpsc::channel();
         let config = config.clone();
         let process = remoteprocess::Process::new(pid)?;
-        let command_line = process
-            .cmdline()
-            .map(|x| x.join(" "))
-            .unwrap_or("".to_owned());
 
         thread::spawn(move || {
             // We need to create this object inside the thread here since PythonSpy objects don't
@@ -332,7 +327,6 @@ impl PythonSpyThread {
             notify_tx,
             sample_rx,
             process,
-            command_line,
             parent,
             initialized: None,
             running: false,
@@ -408,10 +402,6 @@ fn get_process_info(pid: Pid, spies: &HashMap<Pid, PythonSpyThread>) -> Option<B
         let parent = spy
             .parent
             .and_then(|parentpid| get_process_info(parentpid, spies));
-        Box::new(ProcessInfo {
-            pid,
-            parent,
-            command_line: spy.command_line.clone(),
-        })
+        Box::new(ProcessInfo { pid, parent })
     })
 }
