@@ -355,11 +355,11 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
 
     let max_intervals = match &config.duration {
         RecordDuration::Unlimited => {
-            println!("{}Sampling process {} times a second, sending aggregated pyroscope reports every {} samples. Press Control-C to exit.", lede, config.sampling_rate, report_interval);
+            eprintln!("{}Sampling process {} times a second, sending aggregated pyroscope reports every {} samples. Press Control-C to exit.", lede, config.sampling_rate, report_interval);
             None
         }
         RecordDuration::Seconds(sec) => {
-            println!("{}Sampling process {} times a second for {} seconds, sending aggregated pyroscope reports every {} samples. Press Control-C to exit.", lede, config.sampling_rate, sec, report_interval);
+            eprintln!("{}Sampling process {} times a second for {} seconds, sending aggregated pyroscope reports every {} samples. Press Control-C to exit.", lede, config.sampling_rate, sec, report_interval);
             Some(sec * config.sampling_rate)
         }
     };
@@ -370,7 +370,7 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
     let mut intervals = 0;
     let mut send_samples = 0;
     let mut samples = 0;
-    println!();
+    eprintln!();
 
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
@@ -391,10 +391,10 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
                     let now = std::time::Instant::now();
                     if now - last_late_message > Duration::from_secs(1) {
                         last_late_message = now;
-                        println!("{}{:.2?} behind in sampling, results may be inaccurate. Try reducing the sampling rate", lede, delay)
+                        eprintln!("{}{:.2?} behind in sampling, results may be inaccurate. Try reducing the sampling rate", lede, delay)
                     }
                 } else {
-                    println!("{:.2?} behind in sampling, results may be inaccurate. Try reducing the sampling rate.", delay);
+                    eprintln!("{:.2?} behind in sampling, results may be inaccurate. Try reducing the sampling rate.", delay);
                 }
             }
         }
@@ -467,12 +467,12 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
             send_samples = 0;
 
             if res.status() != StatusCode::OK {
-                println!(
+                eprintln!(
                     "{}An error occurred while sending data to pyroscope: {:#?}",
                     lede, res
                 )
             } else {
-                println!("{}Sent pyroscope report!", lede);
+                eprintln!("{}Sent pyroscope report!", lede);
             }
         }
 
@@ -498,19 +498,19 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
         .send()?;
 
     if res.status() != StatusCode::OK {
-        println!(
+        eprintln!(
             "{}An error occurred while sending data to pyroscope: {:#?}",
             lede, res
         )
     } else {
-        println!("{}Sent final pyroscope report!", lede);
+        eprintln!("{}Sent final pyroscope report!", lede);
     }
 
     if !exit_message.is_empty() {
-        println!("\n{}{}", lede, exit_message);
+        eprintln!("\n{}{}", lede, exit_message);
     }
 
-    println!(
+    eprintln!(
         "{}Reported data to '{}'. Samples: {} Errors: {}",
         lede, pyroscope_url, samples, errors
     );
@@ -583,17 +583,10 @@ fn pyspy_main() -> Result<(), Error> {
             }
         }
 
-        let mut command = command.args(&subprocess[1..]);
-
-        if config.capture_output {
-            command = command
-                .stdin(std::process::Stdio::null())
-                .stdout(process_output.reopen()?)
-                .stderr(process_output.reopen()?)
-        }
-
-        let mut command = command
-            .spawn()
+        let mut command = command.args(&subprocess[1..])
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit()).spawn()
             .map_err(|e| format_err!("Failed to create process '{}': {}", subprocess[0], e))?;
 
         #[cfg(target_os = "macos")]
