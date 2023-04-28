@@ -472,7 +472,7 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
                     lede, res
                 )
             } else {
-                eprintln!("{}Sent pyroscope report!", lede);
+                //eprintln!("{}Sent pyroscope report!", lede);
             }
         }
 
@@ -503,7 +503,7 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
             lede, res
         )
     } else {
-        eprintln!("{}Sent final pyroscope report!", lede);
+        //eprintln!("{}Sent final pyroscope report!", lede);
     }
 
     if !exit_message.is_empty() {
