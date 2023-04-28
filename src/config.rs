@@ -68,6 +68,8 @@ pub struct Config {
     pub pyroscope_tags: Option<String>,
     #[doc(hidden)]
     pub pyroscope_report_interval: u64,
+    #[doc(hidden)]
+    pub pyroscope_procname: Option<String>,
 }
 
 #[allow(non_camel_case_types)]
@@ -151,6 +153,7 @@ impl Default for Config {
             pyroscope_tags: None,
             pyroscope_url: None,
             pyroscope_report_interval: 1000,
+            pyroscope_procname: None,
         }
     }
 }
@@ -315,6 +318,14 @@ impl Config {
                     .help("Pyroscope app name")
                     .takes_value(true)
                     .required(true),
+            )
+            .arg(
+                Arg::new("procname")
+                    .long("pyroscope_procname")
+                    .value_name("procname")
+                    .help("Pyroscope process name")
+                    .takes_value(true)
+                    .required(false),
             )
             .arg(
                 Arg::new("report_interval")
@@ -495,6 +506,7 @@ impl Config {
                 };
                 config.include_thread_ids = matches.occurrences_of("threads") > 0;
                 config.pyroscope_url = matches.value_of("url").map(|f| f.to_owned());
+                config.pyroscope_procname = matches.value_of("procname").map(|f| f.to_owned());
                 config.pyroscope_app = matches.value_of("app").map(|f| f.to_owned());
                 config.pyroscope_tags = matches.value_of("tags").map(|f| f.to_owned());
                 if matches.occurrences_of("nolineno") > 0 && matches.occurrences_of("function") > 0

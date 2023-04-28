@@ -267,11 +267,11 @@ fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error>
             }
 
             if let Some(process_info) = trace.process_info.as_ref().map(|x| x) {
-                trace.frames.push(process_info.to_frame());
+                trace.frames.push(process_info.to_frame(None));
                 let mut parent = process_info.parent.as_ref();
                 while parent.is_some() {
                     if let Some(process_info) = parent {
-                        trace.frames.push(process_info.to_frame());
+                        trace.frames.push(process_info.to_frame(None));
                         parent = process_info.parent.as_ref();
                     }
                 }
@@ -438,9 +438,9 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
                     while process_info_parent.parent.is_some() {
                         process_info_parent = process_info_parent.parent.as_ref().unwrap();
                     }
-                    trace.frames.push(process_info_parent.to_frame());
+                    trace.frames.push(process_info_parent.to_frame(config.pyroscope_procname.clone()));
                 } else {
-                    trace.frames.push(process_info.to_frame());
+                    trace.frames.push(process_info.to_frame(config.pyroscope_procname.clone()));
                 }
             }
 

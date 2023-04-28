@@ -270,11 +270,12 @@ pub fn get_gil_threadid<I: InterpreterState, P: ProcessMemory>(
 }
 
 impl ProcessInfo {
-    pub fn to_frame(&self) -> Frame {
+    pub fn to_frame(&self, name: Option<String>) -> Frame {
         Frame {
-            name: remoteprocess::Process::new(self.pid)
+            name: name.unwrap_or_else(|| remoteprocess::Process::new(self.pid)
                 .and_then(|p| p.cmdline().map(|x| x.join(" ")))
-                .unwrap_or("".to_owned()),
+                .unwrap_or("".to_owned())
+            ),
             filename: String::from(""),
             module: None,
             short_filename: None,
