@@ -27,7 +27,7 @@ mod timer;
 mod utils;
 mod version;
 
-use std::io::{Read, Write};
+use std::io::{stderr, stdout, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -172,14 +172,14 @@ fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error>
     let max_intervals = match &config.duration {
         RecordDuration::Unlimited => {
             println!(
-                "{}Sampling process {} times a second. Press Control-C to exit.",
+                "{}sss Sampling process {} times a second. Press Control-C to exit.",
                 lede, config.sampling_rate
             );
             None
         }
         RecordDuration::Seconds(sec) => {
             println!(
-                "{}Sampling process {} times a second for {} seconds. Press Control-C to exit.",
+                "{}sss Sampling process {} times a second for {} seconds. Press Control-C to exit.",
                 lede, config.sampling_rate, sec
             );
             Some(sec * config.sampling_rate)
@@ -360,11 +360,11 @@ fn sample_pyroscope(pid: remoteprocess::Pid, config: &Config) -> Result<(), Erro
 
     let max_intervals = match &config.duration {
         RecordDuration::Unlimited => {
-            println!("{}Sampling process {} times a second, sending aggregated pyroscope reports every {} samples. Press Control-C to exit.", lede, config.sampling_rate, report_interval);
+            println!("{}sss Sampling process {} times a second, sending aggregated pyroscope reports every {} samples. Press Control-C to exit.", lede, config.sampling_rate, report_interval);
             None
         }
         RecordDuration::Seconds(sec) => {
-            println!("{}Sampling process {} times a second for {} seconds, sending aggregated pyroscope reports every {} samples. Press Control-C to exit.", lede, config.sampling_rate, sec, report_interval);
+            println!("{}sss Sampling process {} times a second for {} seconds, sending aggregated pyroscope reports every {} samples. Press Control-C to exit.", lede, config.sampling_rate, sec, report_interval);
             Some(sec * config.sampling_rate)
         }
     };
@@ -591,6 +591,7 @@ fn pyspy_main() -> Result<(), Error> {
         let mut command = command.args(&subprocess[1..]);
 
         if config.capture_output {
+            println!("Capturing output of process {:?} to {}", command, process_output.path().display());
             command = command
                 .stdin(std::process::Stdio::null())
                 .stdout(process_output.reopen()?)
@@ -603,10 +604,11 @@ fn pyspy_main() -> Result<(), Error> {
         
         let mut signals = Signals::new(&[SIGINT, SIGTERM])?;
         let child_pid = command.id();
+        println!("PID: {}", child_pid);
         std::thread::spawn(move || {
             for sig in signals.forever() {
                 signal::kill(Pid::from_raw(child_pid.try_into().unwrap()), Signal::try_from(sig).unwrap()).unwrap();
-                println!("Received signal {:?}", sig);
+                println!("py-spy: received signal {:?}", sig);
             }
         });
 
